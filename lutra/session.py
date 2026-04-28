@@ -121,6 +121,10 @@ class SessionManager:
         self._maybe_persist(sess)
         return reply
 
+    def update_jira_token(self, aegis_cas: str) -> bool:
+        """Hot-update _aegis_cas on the live JIRA session."""
+        return self._tools.update_jira_token(aegis_cas)
+
     def save_all_sessions(self):
         with self._lock:
             sessions = list(self._sessions.values())

@@ -282,6 +282,14 @@ class ToolExecutor:
         log.info("Tool executor ready: cwd=%s jira=%s",
                  self._cwd, "yes" if self._jira_client else "no")
 
+    def update_jira_token(self, aegis_cas: str) -> bool:
+        """Hot-update _aegis_cas cookie on the live JIRA session."""
+        if not self._jira_session:
+            return False
+        self._jira_session.cookies.set("_aegis_cas", aegis_cas)
+        log.info("JIRA aegis_cas updated (len=%d)", len(aegis_cas))
+        return True
+
     @property
     def definitions(self) -> list[dict]:
         defs = list(TOOL_DEFINITIONS)

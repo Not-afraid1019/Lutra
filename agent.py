@@ -58,6 +58,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_chat()
         elif self.path == "/api/send":
             self._handle_send()
+        elif self.path == "/api/jira-token":
+            self._handle_jira_token()
         else:
             self._respond(404, {"error": "not found"})
 
@@ -91,6 +93,20 @@ class APIHandler(BaseHTTPRequestHandler):
 
         feishu_sender.send_text(chat_id, str(content))
         self._respond(200, {"ok": True})
+
+    def _handle_jira_token(self):
+        body = self._read_body()
+        token = body.get("token", "")
+        if not token:
+            self._respond(400, {"error": "token required"})
+            return
+
+        ok = session_mgr.update_jira_token(token)
+        if ok:
+            log.info("[HTTP] JIRA aegis_cas updated (len=%d)", len(token))
+            self._respond(200, {"ok": True, "message": "JIRA token updated"})
+        else:
+            self._respond(503, {"error": "JIRA not configured"})
 
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length", 0))
