@@ -48,7 +48,7 @@ cp .env.example .env
 | `BOT_NAME` / `FEISHU_BOT_NAME` | 机器人名称，默认 `Lutra` | 否 |
 | `JIRA_SERVER` | JIRA 服务器地址 | 使用 JIRA 时必填 |
 | `JIRA_PAT` | JIRA Personal Access Token | 使用 JIRA 时必填 |
-| `JIRA_AEGIS_CAS` | 内部认证 cookie（可选） | 否 |
+| `JIRA_AEGIS_CAS` | SSO 认证 cookie，自动从 Chrome 读取，通常无需配置 | 否 |
 | `MIMO_API_KEY` | Mimo 脱敏服务密钥 | 否 |
 
 ### 3. 启动
