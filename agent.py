@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""agent.py -- ClawBot 单进程入口
+"""agent.py -- Lutra 单进程入口
 
 编码助手：通过飞书接收指令，用工具读写代码、执行命令。
 
-    飞书用户 ←WebSocket→ [clawbot.feishu] ←直接调用→ [clawbot.session]
-    调试/外部 ←HTTP /api/chat→ [clawbot.session]
+    飞书用户 ←WebSocket→ [lutra.feishu] ←直接调用→ [lutra.session]
+    调试/外部 ←HTTP /api/chat→ [lutra.session]
 
 用法:
     source .env
@@ -21,11 +21,11 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from clawbot.config import ClawBotConfig
-from clawbot.feishu import FeishuSender, start_ws
-from clawbot.llm import LLMClient
-from clawbot.memory.store import MemoryStore
-from clawbot.session import SessionManager
+from lutra.config import LutraConfig
+from lutra.feishu import FeishuSender, start_ws
+from lutra.llm import LLMClient
+from lutra.memory.store import MemoryStore
+from lutra.session import SessionManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,7 +35,7 @@ log = logging.getLogger("agent")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Globals — initialized in main()
-config: ClawBotConfig = None  # type: ignore[assignment]
+config: LutraConfig = None  # type: ignore[assignment]
 session_mgr: SessionManager = None  # type: ignore[assignment]
 feishu_sender: FeishuSender | None = None
 
@@ -118,14 +118,14 @@ class APIHandler(BaseHTTPRequestHandler):
 def main():
     global config, session_mgr, feishu_sender
 
-    parser = argparse.ArgumentParser(description="ClawBot Agent")
+    parser = argparse.ArgumentParser(description="Lutra Agent")
     parser.add_argument(
         "--port", type=int, default=8901, help="HTTP API 端口 (默认 8901)"
     )
     args = parser.parse_args()
 
     # ── Bootstrap ──
-    config = ClawBotConfig()
+    config = LutraConfig()
 
     if not config.claude_api_key:
         print("ERROR: 请设置 CLAUDE_API_KEY")

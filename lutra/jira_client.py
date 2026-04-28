@@ -14,7 +14,7 @@ import requests
 
 from jira import JIRA
 
-log = logging.getLogger("clawbot.jira")
+log = logging.getLogger("lutra.jira")
 
 # Magic bytes → extension mapping for common file types
 _MAGIC_BYTES = {

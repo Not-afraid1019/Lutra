@@ -1,1 +1,0 @@
-# clawbot - ClawBot core package

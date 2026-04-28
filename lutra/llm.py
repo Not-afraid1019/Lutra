@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 
 import anthropic
 
-from .config import ClawBotConfig
+from .config import LutraConfig
 
-log = logging.getLogger("clawbot.llm")
+log = logging.getLogger("lutra.llm")
 
 
 @dataclass
@@ -22,7 +22,7 @@ class ChatResponse:
 
 
 class LLMClient:
-    def __init__(self, config: ClawBotConfig):
+    def __init__(self, config: LutraConfig):
         kwargs: dict = {"api_key": config.claude_api_key}
         if config.claude_base_url:
             kwargs["base_url"] = config.claude_base_url

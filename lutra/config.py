@@ -1,4 +1,4 @@
-"""ClawBot configuration — loaded from environment / .env file."""
+"""Lutra configuration — loaded from environment / .env file."""
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
-class ClawBotConfig(BaseSettings):
+class LutraConfig(BaseSettings):
     # Claude API
     claude_api_key: str = ""
     claude_base_url: str = ""
@@ -21,7 +21,7 @@ class ClawBotConfig(BaseSettings):
         ),
     )
     bot_name: str = Field(
-        default="ClawBot",
+        default="Lutra",
         validation_alias=AliasChoices(
             "bot_name", "feishu_bot_name",  # legacy compat
         ),
@@ -40,7 +40,7 @@ class ClawBotConfig(BaseSettings):
     session_save_messages: int = 5
 
     # Paths
-    db_path: Path = Path("data/clawbot.db")
+    db_path: Path = Path("data/lutra.db")
 
     # Memory
     memory_inject_limit: int = 5

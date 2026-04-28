@@ -3,7 +3,7 @@
 import logging
 import re
 
-log = logging.getLogger("clawbot.memory.retrieval")
+log = logging.getLogger("lutra.memory.retrieval")
 
 
 class MemoryRetriever:

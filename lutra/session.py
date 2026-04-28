@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 
-from .config import ClawBotConfig
+from .config import LutraConfig
 from .context import ContextManager
 from .llm import LLMClient
 from .memory.retrieval import MemoryRetriever
@@ -15,7 +15,7 @@ from .memory.store import MemoryStore
 from .models import Memory, SessionState
 from .tools import ToolExecutor
 
-log = logging.getLogger("clawbot.session")
+log = logging.getLogger("lutra.session")
 
 SYSTEM_PROMPT_TEMPLATE = """\
 你是 {bot_name}，运行在用户本机的 AI 助手，拥有完整的文件系统访问权限。
@@ -36,7 +36,7 @@ class SessionManager:
 
     def __init__(
         self,
-        config: ClawBotConfig,
+        config: LutraConfig,
         store: MemoryStore,
         llm: LLMClient,
     ):
@@ -62,7 +62,7 @@ class SessionManager:
             "provider_id": config.mimo_provider_id,
         }
 
-        # data_dir: resolve relative to clawbot project root (where agent.py lives)
+        # data_dir: resolve relative to lutra project root (where agent.py lives)
         data_dir = str(Path(__file__).resolve().parent.parent / "data")
 
         self._tools = ToolExecutor(

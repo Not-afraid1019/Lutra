@@ -22,7 +22,7 @@ from lark_oapi.api.im.v1 import (
 )
 from lark_oapi.api.im.v1.model import Emoji
 
-log = logging.getLogger("clawbot.feishu")
+log = logging.getLogger("lutra.feishu")
 
 _AT_PATTERN = re.compile(r"@_user_\d+\s*")
 

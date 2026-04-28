@@ -6,7 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
-log = logging.getLogger("clawbot.tools")
+log = logging.getLogger("lutra.tools")
 
 # ======================================================================
 # Tool definitions (Anthropic tool_use schema)

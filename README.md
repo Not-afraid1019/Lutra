@@ -1,4 +1,4 @@
-# ClawBot
+# Lutra
 
 本地 AI 编码助手 —— 通过飞书接收指令，使用 Claude 读写代码、执行命令、分析和修复 JIRA issue。
 
@@ -45,7 +45,7 @@ cp .env.example .env
 | `FEISHU_APP_ID` | 飞书应用 ID | 使用飞书时必填 |
 | `FEISHU_APP_SECRET` | 飞书应用密钥 | 使用飞书时必填 |
 | `FEISHU_CHAT_ID` | 限定响应的群聊 ID，留空则响应所有 | 否 |
-| `BOT_NAME` / `FEISHU_BOT_NAME` | 机器人名称，默认 `ClawBot` | 否 |
+| `BOT_NAME` / `FEISHU_BOT_NAME` | 机器人名称，默认 `Lutra` | 否 |
 | `JIRA_SERVER` | JIRA 服务器地址 | 使用 JIRA 时必填 |
 | `JIRA_PAT` | JIRA Personal Access Token | 使用 JIRA 时必填 |
 | `JIRA_AEGIS_CAS` | 内部认证 cookie（可选） | 否 |
@@ -62,7 +62,7 @@ python agent.py --port 9000  # 自定义端口
 启动后输出：
 
 ```
-  ClawBot started
+  Lutra started
   Model       : claude-opus-4-6
   Work dir    : /home/user/workspace/project
   HTTP API    : http://0.0.0.0:8901
@@ -75,7 +75,7 @@ python agent.py --port 9000  # 自定义端口
 
 ### 飞书
 
-在群聊中 @ClawBot 发送消息即可，机器人会显示 Typing 表情表示正在处理。
+在群聊中 @Lutra 发送消息即可，机器人会显示 Typing 表情表示正在处理。
 
 ### HTTP API
 
@@ -95,7 +95,7 @@ curl http://localhost:8901/api/status
 
 ### 基础工具
 
-ClawBot 能直接操作目标项目目录中的文件和命令：
+Lutra 能直接操作目标项目目录中的文件和命令：
 
 - **读写文件** — `read_file`、`write_file`、`edit_file`
 - **浏览目录** — `list_directory`
@@ -163,7 +163,7 @@ jira_fix("OSBOT-32")
 
 ```
 agent.py                  # 入口：启动飞书 WS + HTTP API + 后台清理
-clawbot/
+lutra/
 ├── config.py             # pydantic-settings 配置，读取 .env
 ├── llm.py                # Claude API 封装（chat + summarize）
 ├── models.py             # SessionState、Memory 数据模型
@@ -177,7 +177,7 @@ clawbot/
     ├── store.py          # SQLite 存储（记忆/会话/角色）
     └── retrieval.py      # 基于关键词的记忆检索
 data/
-├── clawbot.db            # SQLite 数据库（WAL 模式）
+├── lutra.db            # SQLite 数据库（WAL 模式）
 └── jira/                 # JIRA 分析/修复产物
     └── osbot-32/
         ├── attachments/

@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-log = logging.getLogger("clawbot.memory.store")
+log = logging.getLogger("lutra.memory.store")
 
 
 class MemoryStore:

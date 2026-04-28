@@ -3,7 +3,7 @@
 import json
 import logging
 
-log = logging.getLogger("clawbot.context")
+log = logging.getLogger("lutra.context")
 
 
 class ContextManager:

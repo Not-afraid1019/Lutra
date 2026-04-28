@@ -1,4 +1,4 @@
-"""Data models used across ClawBot."""
+"""Data models used across Lutra."""
 
 import time
 import uuid

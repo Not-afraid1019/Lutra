@@ -11,7 +11,7 @@ import logging
 
 from openai import OpenAI
 
-log = logging.getLogger("clawbot.sensitive_filter")
+log = logging.getLogger("lutra.sensitive_filter")
 
 _SYSTEM_PROMPT = """\
 你是一个数据脱敏专家。请对以下文本进行脱敏处理，规则如下：
