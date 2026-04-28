@@ -145,6 +145,37 @@ def start_ws(
       4. Send reply
     """
 
+    def _process(msg, event) -> None:
+        """Handle a single message — runs in a worker thread."""
+        sender_id = (
+            event.sender.sender_id.open_id if event.sender.sender_id else "?"
+        )
+        log.info(
+            "[MSG] chat=%s type=%s sender=%s text=%s",
+            msg.chat_id,
+            msg.chat_type,
+            sender_id,
+            msg._text,
+        )
+
+        # 1. Typing indicator
+        reaction_id = sender.add_reaction(msg.message_id)
+
+        try:
+            # 2. Process (may take minutes for Claude calls)
+            reply = on_message(msg.chat_id, sender_id, msg._text)
+        except Exception as e:
+            log.error("[MSG] handler error: %s", e)
+            reply = f"处理出错: {e}"
+        finally:
+            # 3. Remove typing indicator
+            if reaction_id:
+                sender.remove_reaction(msg.message_id, reaction_id)
+
+        # 4. Send reply
+        if reply:
+            sender.send_text(msg.chat_id, reply)
+
     def handler(data: P2ImMessageReceiveV1) -> None:
         event = data.event
         msg = event.message
@@ -170,30 +201,14 @@ def start_ws(
         if not text:
             return
 
-        sender_id = (
-            event.sender.sender_id.open_id if event.sender.sender_id else "?"
-        )
-        log.info(
-            "[MSG] chat=%s type=%s sender=%s text=%s",
-            msg.chat_id,
-            msg.chat_type,
-            sender_id,
-            text,
-        )
+        # Stash parsed text on msg object for the worker thread
+        msg._text = text
 
-        # 1. Typing indicator — add reaction to user's message
-        reaction_id = sender.add_reaction(msg.message_id)
-
-        # 2. Process
-        reply = on_message(msg.chat_id, sender_id, text)
-
-        # 3. Remove typing indicator
-        if reaction_id:
-            sender.remove_reaction(msg.message_id, reaction_id)
-
-        # 4. Send reply
-        if reply:
-            sender.send_text(msg.chat_id, reply)
+        # Dispatch to worker thread so we don't block the event loop
+        # (blocking prevents WebSocket ping/pong → 3003 ping_timeout)
+        threading.Thread(
+            target=_process, args=(msg, event), daemon=True
+        ).start()
 
     _noop = lambda data: None  # noqa: E731
     event_handler = (
@@ -210,7 +225,7 @@ def start_ws(
         app_secret,
         event_handler=event_handler,
         log_level=lark.LogLevel.INFO,
-        auto_reconnect=False,
+        auto_reconnect=True,
     )
     threading.Thread(target=ws_client.start, daemon=True).start()
     log.info("Feishu WebSocket started (filter=%s)", chat_id_filter or "any")
