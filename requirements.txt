@@ -1,0 +1,5 @@
+anthropic
+pydantic
+pydantic-settings
+python-dotenv
+lark-oapi
