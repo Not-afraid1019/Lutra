@@ -612,8 +612,13 @@ class ToolExecutor:
 
         analysis = analysis_path.read_text(encoding="utf-8")
 
-        # 2. Build fix prompt
+        # 2. Create fix branch BEFORE Claude CLI runs,
+        #    so all changes (including Claude's own commits) land on it.
         branch_name = f"fix/{issue_key.lower()}"
+        log.info("[FIX] Creating branch %s", branch_name)
+        _git_ensure_branch(self._project_dir, branch_name)
+
+        # 3. Build fix prompt
         prompt = f"""\
 请根据以下分析报告，对代码进行最小改动修复。
 
@@ -624,15 +629,16 @@ class ToolExecutor:
 1. 只做必要的最小改动，不要重构或优化无关代码
 2. 确保修复不会引入新的问题
 3. 如果需要添加测试，请一并添加
-4. 修复完成后，简要说明你做了哪些修改"""
+4. 修复完成后，简要说明你做了哪些修改
+5. 不要自己执行 git 操作（不要 commit、push），我会统一处理"""
 
-        # 3. Run Claude CLI to implement the fix
+        # 4. Run Claude CLI to implement the fix (on fix branch)
         log.info("[FIX] Running Claude CLI fix for %s", issue_key)
         fix_output = _run_claude_cli(prompt, self._project_dir)
 
-        # 4. Git operations: branch, commit, push
-        log.info("[FIX] Git operations for %s", issue_key)
-        git_result = _git_branch_commit_push(
+        # 5. Commit remaining changes (if any) and push
+        log.info("[FIX] Git commit & push for %s", issue_key)
+        git_result = _git_commit_and_push(
             self._project_dir, branch_name, issue_key
         )
 
@@ -701,51 +707,47 @@ def _run_claude_cli(prompt: str, cwd: Path, timeout: int = 300) -> str:
         return f"Error running Claude CLI: {e}"
 
 
-def _git_branch_commit_push(
+def _run_git(project_dir: Path, cmd: str, timeout: int = 30) -> tuple[str, int]:
+    proc = subprocess.run(
+        cmd, shell=True, cwd=str(project_dir),
+        capture_output=True, text=True, timeout=timeout,
+    )
+    return (proc.stdout + proc.stderr).strip(), proc.returncode
+
+
+def _git_ensure_branch(project_dir: Path, branch_name: str) -> None:
+    """Create and switch to branch. If it already exists, just switch."""
+    out, rc = _run_git(project_dir, f"git checkout -b {branch_name}")
+    if rc != 0:
+        _run_git(project_dir, f"git checkout {branch_name}")
+
+
+def _git_commit_and_push(
     project_dir: Path, branch_name: str, issue_key: str
 ) -> dict:
-    """Create branch, add, commit, push. Returns dict with summary and push_output."""
+    """Stage, commit remaining changes, and push. Always pushes.
+
+    Returns dict with summary and push_output.
+    """
     result = {"summary": "", "push_output": ""}
     steps = []
 
-    def run_git(cmd: str) -> tuple[str, int]:
-        proc = subprocess.run(
-            cmd, shell=True, cwd=str(project_dir),
-            capture_output=True, text=True, timeout=30,
-        )
-        return (proc.stdout + proc.stderr).strip(), proc.returncode
-
-    # Checkout branch
-    out, rc = run_git(f"git checkout -b {branch_name}")
-    if rc != 0:
-        # Branch may already exist
-        out2, rc2 = run_git(f"git checkout {branch_name}")
-        if rc2 != 0:
-            steps.append(f"checkout failed: {out} / {out2}")
-            result["summary"] = "\n".join(steps)
-            return result
-        steps.append(f"Switched to existing branch: {branch_name}")
-    else:
-        steps.append(f"Created branch: {branch_name}")
-
-    # Stage all changes
-    out, rc = run_git("git add -A")
+    # Stage any uncommitted changes (Claude CLI may or may not have committed)
+    out, rc = _run_git(project_dir, "git add -A")
     steps.append(f"git add -A: {'ok' if rc == 0 else out}")
 
-    # Check if there are changes to commit
-    out, rc = run_git("git diff --cached --stat")
-    if not out.strip():
-        steps.append("No changes to commit")
-        result["summary"] = "\n".join(steps)
-        return result
+    # Commit if there are staged changes
+    out, rc = _run_git(project_dir, "git diff --cached --stat")
+    if out.strip():
+        commit_msg = f"fix({issue_key.lower()}): auto-fix based on JIRA analysis"
+        out, rc = _run_git(project_dir, f'git commit -m "{commit_msg}"')
+        steps.append(f"commit: {'ok' if rc == 0 else out}")
+    else:
+        steps.append("No extra changes to commit (Claude CLI already committed)")
 
-    # Commit
-    commit_msg = f"fix({issue_key.lower()}): auto-fix based on JIRA analysis"
-    out, rc = run_git(f'git commit -m "{commit_msg}"')
-    steps.append(f"commit: {'ok' if rc == 0 else out}")
-
-    # Push
-    out, rc = run_git(f"git push -u origin {branch_name}")
+    # Always push — even if we didn't make a new commit, Claude CLI
+    # may have committed on this branch and those need to be pushed.
+    out, rc = _run_git(project_dir, f"git push -u origin {branch_name}")
     result["push_output"] = out
     steps.append(f"push: {'ok' if rc == 0 else out}")
 
