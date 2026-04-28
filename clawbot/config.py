@@ -16,11 +16,15 @@ class ClawBotConfig(BaseSettings):
     # Project
     project_dir: str = Field(
         default="",
-        validation_alias=AliasChoices("project_dir", "osbot_project_dir"),
+        validation_alias=AliasChoices(
+            "project_dir", "osbot_project_dir",  # legacy compat
+        ),
     )
     bot_name: str = Field(
         default="ClawBot",
-        validation_alias=AliasChoices("bot_name", "feishu_bot_name"),
+        validation_alias=AliasChoices(
+            "bot_name", "feishu_bot_name",  # legacy compat
+        ),
     )
 
     # Agent loop
