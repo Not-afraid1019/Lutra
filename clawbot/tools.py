@@ -736,11 +736,11 @@ def _git_commit_and_push(
     out, rc = _run_git(project_dir, "git add -A")
     steps.append(f"git add -A: {'ok' if rc == 0 else out}")
 
-    # Commit if there are staged changes
+    # Commit if there are staged changes (use -s for Signed-off-by)
     out, rc = _run_git(project_dir, "git diff --cached --stat")
     if out.strip():
-        commit_msg = f"fix({issue_key.lower()}): auto-fix based on JIRA analysis"
-        out, rc = _run_git(project_dir, f'git commit -m "{commit_msg}"')
+        commit_msg = f"fix: auto-fix {issue_key} based on JIRA analysis"
+        out, rc = _run_git(project_dir, f'git commit -s -m "{commit_msg}"')
         steps.append(f"commit: {'ok' if rc == 0 else out}")
     else:
         steps.append("No extra changes to commit (Claude CLI already committed)")
