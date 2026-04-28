@@ -1,6 +1,13 @@
 """JIRA client — fetch issues, download attachments, format as markdown.
 
-Auth: Bearer PAT + _aegis_cas cookie (same as dev-osbot reference).
+Auth strategy:
+    1. Bearer PAT header for API authentication
+    2. _aegis_cas cookie for SSO gateway — auto-refreshed from Chrome browser,
+       falls back to static value from .env
+
+Uses a shared requests.Session so the cookie jar is maintained across all
+requests (JIRA API calls + attachment downloads).  If the server responds
+with Set-Cookie the session picks it up automatically.
 """
 
 import json
@@ -31,15 +38,32 @@ def connect(server: str, pat: str, aegis_cas: str) -> JIRA:
 
     Tries to auto-refresh aegis_cas from Chrome cookies first.
     Falls back to the provided aegis_cas value.
-    """
-    # Try to get fresh token from Chrome browser
-    fresh_token = _get_fresh_aegis_cas(server)
-    token = fresh_token or aegis_cas
 
-    headers = {"Authorization": f"Bearer {pat}"}
+    The returned JIRA object owns a requests.Session whose cookie jar
+    is shared — call ``get_session(client)`` to reuse it for downloads.
+    """
+    # Best-effort: read a fresh token from the user's Chrome browser
+    token = _get_fresh_aegis_cas(server) or aegis_cas
+
+    headers: dict[str, str] = {"Authorization": f"Bearer {pat}"}
+    cookies: dict[str, str] = {}
     if token:
-        headers["Cookie"] = f"_aegis_cas={token}"
-    return JIRA(server=server, options={"headers": headers})
+        cookies["_aegis_cas"] = token
+
+    client = JIRA(
+        server=server,
+        options={"headers": headers, "cookies": cookies},
+    )
+    return client
+
+
+def get_session(client: JIRA) -> requests.Session:
+    """Return the underlying requests.Session used by a JIRA client.
+
+    The session carries the Bearer header and _aegis_cas cookie and is
+    kept up-to-date by any Set-Cookie responses the server sends.
+    """
+    return client._session
 
 
 def _get_fresh_aegis_cas(server: str) -> str:
@@ -218,19 +242,15 @@ def _looks_downloadable(url: str) -> bool:
 def download_attachments(
     issue_data: dict,
     output_dir: str | Path,
-    jira_server: str,
-    pat: str,
-    aegis_cas: str = "",
+    session: requests.Session,
 ) -> dict:
     """Download all attachments from an issue.
 
+    Uses the shared *session* (from ``get_session(client)``) which already
+    carries the Bearer header and aegis_cas cookie.
+
     Returns manifest dict: {"files": [...], "errors": [...]}.
     """
-    # Auto-refresh aegis_cas from Chrome if possible
-    fresh = _get_fresh_aegis_cas(jira_server)
-    if fresh:
-        aegis_cas = fresh
-
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -238,15 +258,13 @@ def download_attachments(
     if not urls:
         return {"files": [], "errors": []}
 
-    jira_host = urlparse(jira_server).hostname or ""
     manifest = {"files": [], "errors": []}
 
     for entry in urls:
         url = entry["url"]
         filename = entry["filename"]
         try:
-            headers = _build_auth_headers(url, jira_host, pat, aegis_cas)
-            resp = requests.get(url, headers=headers, timeout=60, stream=True)
+            resp = session.get(url, timeout=60, stream=True)
             resp.raise_for_status()
 
             filepath = output_dir / filename
@@ -282,25 +300,6 @@ def download_attachments(
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
 
     return manifest
-
-
-def _build_auth_headers(
-    url: str, jira_host: str, pat: str, aegis_cas: str
-) -> dict:
-    """Build auth headers: Bearer PAT for JIRA domain, aegis_cas cookie for internal."""
-    host = urlparse(url).hostname or ""
-    headers = {}
-
-    if host == jira_host or host.endswith(f".{jira_host}"):
-        headers["Authorization"] = f"Bearer {pat}"
-        if aegis_cas:
-            headers["Cookie"] = f"_aegis_cas={aegis_cas}"
-    elif aegis_cas and (
-        host.endswith(".srv") or host.endswith(".internal") or host.endswith(".mioffice.cn")
-    ):
-        headers["Cookie"] = f"_aegis_cas={aegis_cas}"
-
-    return headers
 
 
 def _fix_filename_ext(filepath: Path, content_type: str) -> Path:

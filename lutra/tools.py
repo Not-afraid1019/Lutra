@@ -265,6 +265,7 @@ class ToolExecutor:
         self._project_dir = Path(project_dir).resolve() if project_dir else self._cwd
 
         # Initialize JIRA if configured
+        self._jira_session = None  # shared requests.Session for cookie reuse
         if jira_config and jira_config.get("server") and jira_config.get("pat"):
             try:
                 from . import jira_client
@@ -273,6 +274,7 @@ class ToolExecutor:
                     jira_config["pat"],
                     jira_config.get("aegis_cas", ""),
                 )
+                self._jira_session = jira_client.get_session(self._jira_client)
                 log.info("JIRA connected: %s", jira_config["server"])
             except Exception as e:
                 log.warning("JIRA connection failed: %s", e)
@@ -513,14 +515,10 @@ class ToolExecutor:
         log.info("[ANALYZE] Fetching %s", issue_key)
         issue_data = jira_client.fetch_issue(self._jira_client, issue_key)
 
-        # 2. Download attachments
+        # 2. Download attachments (reuse JIRA session for cookie management)
         log.info("[ANALYZE] Downloading attachments for %s", issue_key)
         manifest = jira_client.download_attachments(
-            issue_data,
-            att_dir,
-            self._jira_config.get("server", ""),
-            self._jira_config.get("pat", ""),
-            self._jira_config.get("aegis_cas", ""),
+            issue_data, att_dir, self._jira_session,
         )
 
         # 3. Format issue as text and filter sensitive data
