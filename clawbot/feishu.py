@@ -116,9 +116,9 @@ _seen_msg_ids: dict[str, float] = {}
 _seen_lock = threading.Lock()
 _DEDUP_TTL = 60
 
-# Messages created before this timestamp (ms) are ignored.
-# Set to "now" at module load so restarting the bot skips queued old messages.
-_boot_time_ms: str = str(int(time.time() * 1000))
+# Messages older than this many seconds are considered stale and dropped.
+# Covers both restart (old queued messages) and reconnect (re-delivered messages).
+_STALE_MSG_SECONDS = 60
 
 
 def _is_duplicate(message_id: str) -> bool:
@@ -189,12 +189,13 @@ def start_ws(
         if _is_duplicate(msg.message_id):
             return
 
-        # Drop messages created before this process started
-        # (Feishu WS re-delivers queued messages on reconnect/restart)
-        if msg.create_time and msg.create_time < _boot_time_ms:
-            log.debug("[MSG] skipping stale message %s (created %s < boot %s)",
-                      msg.message_id, msg.create_time, _boot_time_ms)
-            return
+        # Drop stale messages (re-delivered after restart or reconnect)
+        if msg.create_time:
+            age = time.time() - int(msg.create_time) / 1000
+            if age > _STALE_MSG_SECONDS:
+                log.debug("[MSG] skipping stale message %s (%.0fs old)",
+                          msg.message_id, age)
+                return
 
         try:
             content = json.loads(msg.content)
