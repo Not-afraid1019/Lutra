@@ -46,7 +46,32 @@ class SessionManager:
         self._context = ContextManager(config, llm)
         self._retriever = MemoryRetriever(store, config)
         self._work_dir = config.project_dir or str(Path.home())
-        self._tools = ToolExecutor(self._work_dir)
+
+        jira_config = None
+        if config.jira_server and config.jira_pat:
+            jira_config = {
+                "server": config.jira_server,
+                "pat": config.jira_pat,
+                "aegis_cas": config.jira_aegis_cas,
+            }
+
+        mimo_config = {
+            "api_key": config.mimo_api_key,
+            "base_url": config.mimo_base_url,
+            "model": config.mimo_model,
+            "provider_id": config.mimo_provider_id,
+        }
+
+        # data_dir: resolve relative to clawbot project root (where agent.py lives)
+        data_dir = str(Path(__file__).resolve().parent.parent / "data")
+
+        self._tools = ToolExecutor(
+            self._work_dir,
+            jira_config=jira_config,
+            mimo_config=mimo_config,
+            data_dir=data_dir,
+            project_dir=self._work_dir,
+        )
         self._system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             bot_name=config.bot_name,
             work_dir=self._work_dir,

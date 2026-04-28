@@ -50,4 +50,15 @@ class ClawBotConfig(BaseSettings):
     feishu_app_secret: str = ""
     feishu_chat_id: str = ""
 
+    # JIRA
+    jira_server: str = ""
+    jira_pat: str = ""
+    jira_aegis_cas: str = ""
+
+    # Mimo (sensitive filter)
+    mimo_api_key: str = ""
+    mimo_base_url: str = "http://model.mify.ai.srv/v1"
+    mimo_model: str = "mimo-v2-flash"
+    mimo_provider_id: str = "xiaomi"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
