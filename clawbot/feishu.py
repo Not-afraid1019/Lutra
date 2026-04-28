@@ -116,9 +116,11 @@ _seen_msg_ids: dict[str, float] = {}
 _seen_lock = threading.Lock()
 _DEDUP_TTL = 60
 
-# Messages older than this many seconds are considered stale and dropped.
-# Covers both restart (old queued messages) and reconnect (re-delivered messages).
-_STALE_MSG_SECONDS = 60
+# Updated to "now" (epoch ms str) before each WS connect/reconnect.
+# Any message with create_time < this value is silently dropped.
+_connect_cutoff_ms: list[str] = [str(int(time.time() * 1000))]
+
+_RECONNECT_DELAY = 3  # seconds
 
 
 def _is_duplicate(message_id: str) -> bool:
@@ -143,10 +145,13 @@ def start_ws(
     """Start Feishu WebSocket listener in a daemon thread.
 
     Flow per message:
-      1. Add ⌨️ reaction to user's message (typing indicator)
+      1. Add reaction to user's message (typing indicator)
       2. Call on_message() to get reply
-      3. Remove ⌨️ reaction
+      3. Remove reaction
       4. Send reply
+
+    Reconnect is handled manually so we can update _connect_cutoff_ms
+    before each connection, ensuring stale messages are never processed.
     """
 
     def _process(msg, event) -> None:
@@ -189,13 +194,11 @@ def start_ws(
         if _is_duplicate(msg.message_id):
             return
 
-        # Drop stale messages (re-delivered after restart or reconnect)
-        if msg.create_time:
-            age = time.time() - int(msg.create_time) / 1000
-            if age > _STALE_MSG_SECONDS:
-                log.debug("[MSG] skipping stale message %s (%.0fs old)",
-                          msg.message_id, age)
-                return
+        # Drop messages created before the current connection was established
+        if msg.create_time and msg.create_time < _connect_cutoff_ms[0]:
+            log.debug("[MSG] dropping pre-connect message %s (created %s < cutoff %s)",
+                      msg.message_id, msg.create_time, _connect_cutoff_ms[0])
+            return
 
         try:
             content = json.loads(msg.content)
@@ -232,12 +235,26 @@ def start_ws(
         .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_noop)
         .build()
     )
-    ws_client = lark.ws.Client(
-        app_id,
-        app_secret,
-        event_handler=event_handler,
-        log_level=lark.LogLevel.INFO,
-        auto_reconnect=True,
-    )
-    threading.Thread(target=ws_client.start, daemon=True).start()
-    log.info("Feishu WebSocket started (filter=%s)", chat_id_filter or "any")
+
+    def _ws_loop():
+        while True:
+            # Record cutoff BEFORE connecting — any message older than this is stale
+            _connect_cutoff_ms[0] = str(int(time.time() * 1000))
+            log.info("Feishu WebSocket connecting (cutoff=%s, filter=%s)",
+                     _connect_cutoff_ms[0], chat_id_filter or "any")
+            try:
+                client = lark.ws.Client(
+                    app_id,
+                    app_secret,
+                    event_handler=event_handler,
+                    log_level=lark.LogLevel.INFO,
+                    auto_reconnect=False,
+                )
+                client.start()  # blocks until disconnect
+            except Exception as e:
+                log.warning("Feishu WebSocket error: %s", e)
+            log.info("Feishu WebSocket disconnected, reconnecting in %ds…",
+                     _RECONNECT_DELAY)
+            time.sleep(_RECONNECT_DELAY)
+
+    threading.Thread(target=_ws_loop, daemon=True).start()
