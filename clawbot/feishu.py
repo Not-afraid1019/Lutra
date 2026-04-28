@@ -120,8 +120,6 @@ _DEDUP_TTL = 60
 # Any message with create_time < this value is silently dropped.
 _connect_cutoff_ms: list[str] = [str(int(time.time() * 1000))]
 
-_RECONNECT_DELAY = 3  # seconds
-
 
 def _is_duplicate(message_id: str) -> bool:
     now = time.time()
@@ -150,8 +148,9 @@ def start_ws(
       3. Remove reaction
       4. Send reply
 
-    Reconnect is handled manually so we can update _connect_cutoff_ms
-    before each connection, ensuring stale messages are never processed.
+    Uses auto_reconnect=True (lark handles reconnect internally via its
+    event loop). We patch Client._connect to update _connect_cutoff_ms
+    before each connect/reconnect, so stale messages are always dropped.
     """
 
     def _process(msg, event) -> None:
@@ -235,26 +234,25 @@ def start_ws(
         .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_noop)
         .build()
     )
+    ws_client = lark.ws.Client(
+        app_id,
+        app_secret,
+        event_handler=event_handler,
+        log_level=lark.LogLevel.INFO,
+        auto_reconnect=True,
+    )
 
-    def _ws_loop():
-        while True:
-            # Record cutoff BEFORE connecting — any message older than this is stale
-            _connect_cutoff_ms[0] = str(int(time.time() * 1000))
-            log.info("Feishu WebSocket connecting (cutoff=%s, filter=%s)",
-                     _connect_cutoff_ms[0], chat_id_filter or "any")
-            try:
-                client = lark.ws.Client(
-                    app_id,
-                    app_secret,
-                    event_handler=event_handler,
-                    log_level=lark.LogLevel.INFO,
-                    auto_reconnect=False,
-                )
-                client.start()  # blocks until disconnect
-            except Exception as e:
-                log.warning("Feishu WebSocket error: %s", e)
-            log.info("Feishu WebSocket disconnected, reconnecting in %ds…",
-                     _RECONNECT_DELAY)
-            time.sleep(_RECONNECT_DELAY)
+    # Patch _connect so cutoff is updated on every connect AND reconnect.
+    # lark_oapi calls _connect() both on initial start and after each
+    # disconnect/reconnect, so this covers all cases.
+    _original_connect = ws_client._connect
 
-    threading.Thread(target=_ws_loop, daemon=True).start()
+    async def _connect_with_cutoff():
+        _connect_cutoff_ms[0] = str(int(time.time() * 1000))
+        log.info("Feishu WebSocket connecting (cutoff=%s, filter=%s)",
+                 _connect_cutoff_ms[0], chat_id_filter or "any")
+        await _original_connect()
+
+    ws_client._connect = _connect_with_cutoff
+
+    threading.Thread(target=ws_client.start, daemon=True).start()
