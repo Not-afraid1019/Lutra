@@ -6,3 +6,5 @@ lark-oapi
 jira
 openai
 requests
+cryptography
+secretstorage

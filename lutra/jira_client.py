@@ -27,11 +27,31 @@ _MAGIC_BYTES = {
 
 
 def connect(server: str, pat: str, aegis_cas: str) -> JIRA:
-    """Establish JIRA connection with Bearer PAT + aegis_cas cookie."""
+    """Establish JIRA connection with Bearer PAT + aegis_cas cookie.
+
+    Tries to auto-refresh aegis_cas from Chrome cookies first.
+    Falls back to the provided aegis_cas value.
+    """
+    # Try to get fresh token from Chrome browser
+    fresh_token = _get_fresh_aegis_cas(server)
+    token = fresh_token or aegis_cas
+
     headers = {"Authorization": f"Bearer {pat}"}
-    if aegis_cas:
-        headers["Cookie"] = f"_aegis_cas={aegis_cas}"
+    if token:
+        headers["Cookie"] = f"_aegis_cas={token}"
     return JIRA(server=server, options={"headers": headers})
+
+
+def _get_fresh_aegis_cas(server: str) -> str:
+    """Try to get a fresh aegis_cas token from Chrome cookies."""
+    try:
+        from .aegis import get_aegis_cas
+        domain = urlparse(server).hostname or ""
+        if domain:
+            return get_aegis_cas(domain)
+    except Exception as e:
+        log.debug("Chrome cookie auto-refresh unavailable: %s", e)
+    return ""
 
 
 def fetch_issue(client: JIRA, issue_key: str) -> dict:
@@ -206,6 +226,11 @@ def download_attachments(
 
     Returns manifest dict: {"files": [...], "errors": [...]}.
     """
+    # Auto-refresh aegis_cas from Chrome if possible
+    fresh = _get_fresh_aegis_cas(jira_server)
+    if fresh:
+        aegis_cas = fresh
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
