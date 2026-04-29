@@ -27,8 +27,29 @@ class ContextManager:
             log.info("Not enough messages to compress (%d)", len(messages))
             return None
 
-        old_messages = messages[:-keep]
-        recent_messages = messages[-keep:]
+        # Find a clean split point: recent_messages must start with a user
+        # text message, not an orphaned tool_result whose tool_use was in old.
+        split = len(messages) - keep
+        while split < len(messages):
+            msg = messages[split]
+            content = msg.get("content", "")
+            # Good boundary: user message with plain text content
+            if msg.get("role") == "user" and isinstance(content, str):
+                break
+            # Also good: assistant message (will be preceded by user text)
+            if msg.get("role") == "assistant":
+                # Back up one to include the user message before it
+                if split > 0 and messages[split - 1].get("role") == "user":
+                    split -= 1
+                break
+            split += 1
+
+        if split >= len(messages) - 2:
+            log.info("Cannot find clean split point, skipping compression")
+            return None
+
+        old_messages = messages[:split]
+        recent_messages = messages[split:]
 
         # Convert structured messages to plain text for summarization
         text_msgs = _to_text_messages(old_messages)

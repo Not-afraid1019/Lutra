@@ -332,6 +332,7 @@ class SessionManager:
     def _agent_loop(self, sess: SessionState, text: str) -> str:
         """Run the tool-use agent loop until Claude gives a text response."""
 
+        self._sanitize_messages(sess.messages)
         sess.messages.append({"role": "user", "content": text})
         sess.ts = time.time()
 
@@ -386,6 +387,49 @@ class SessionManager:
                 )
 
             sess.messages.append({"role": "user", "content": tool_results})
+
+    @staticmethod
+    def _sanitize_messages(messages: list[dict]):
+        """Remove orphaned tool_result blocks that lack a preceding tool_use.
+
+        This can happen after context compression or a mid-loop crash.
+        Mutates the list in place.
+        """
+        # Collect tool_use ids from the entire conversation
+        tool_use_ids: set[str] = set()
+        for msg in messages:
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_use_ids.add(block["id"])
+
+        # Remove messages whose content is entirely orphaned tool_results
+        i = 0
+        removed = 0
+        while i < len(messages):
+            content = messages[i].get("content")
+            if isinstance(content, list):
+                # Filter out orphaned tool_result blocks
+                cleaned = [
+                    b for b in content
+                    if not (
+                        isinstance(b, dict)
+                        and b.get("type") == "tool_result"
+                        and b.get("tool_use_id") not in tool_use_ids
+                    )
+                ]
+                if not cleaned:
+                    messages.pop(i)
+                    removed += 1
+                    continue
+                if len(cleaned) != len(content):
+                    messages[i]["content"] = cleaned
+            i += 1
+
+        if removed:
+            log.info("Sanitized messages: removed %d orphaned tool_result messages", removed)
 
     # ==================================================================
     # Persistence
