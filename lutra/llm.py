@@ -95,5 +95,8 @@ class LLMClient:
             "## 关键词\n"
             "（提取 5-10 个关键词，逗号分隔）"
         )
+        # Ensure messages end with a user message (required by some providers)
+        if messages and messages[-1].get("role") != "user":
+            messages = messages + [{"role": "user", "content": "请总结以上对话。"}]
         resp = self.chat(system, messages, max_tokens=2048)
         return resp.text
