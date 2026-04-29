@@ -62,6 +62,20 @@ cp .env.example .env
 | `GITLAB_POLL_INTERVAL` | MR review 轮询间隔(秒)，`0` 不启用 | 否 |
 | `GITLAB_POLL_CRON` | 固定轮询时间如 `09:00,14:00`，空不启用 | 否 |
 
+GitLab 配置示例：
+
+```bash
+# GitLab 地址和认证
+export GITLAB_URL="https://git.n.xiaomi.com"
+export GITLAB_PAT="glpat-xxxxxxxxxxxxxxxxxxxx"   # Settings → Access Tokens → 勾选 api scope
+export GITLAB_PROJECT=""                          # 留空自动从 git remote 检测，或填 "group/project"
+export GITLAB_BOT_USERNAME="gongxi1"              # 你的 GitLab 用户名
+
+# 轮询模式（二选一或同时启用）
+export GITLAB_POLL_INTERVAL="300"                 # 每 300 秒轮询一次
+export GITLAB_POLL_CRON="09:00,14:00"             # 每天 9 点和 14 点各轮询一次
+```
+
 ### 3. 启动
 
 ```bash
