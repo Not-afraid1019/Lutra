@@ -238,8 +238,8 @@ class SessionManager:
         context_parts.append(f"discussion_id: {disc_id}")
         context_parts.append(
             "\n请处理这条 review 评论：\n"
-            "1. 先 checkout 到对应分支，读取相关代码\n"
-            "2. 判断评论指出的问题是否确实存在\n"
+            "1. 先 git fetch origin && git checkout 对应分支 && git pull，确保代码是最新的\n"
+            "2. 读取相关代码，判断评论指出的问题是否确实存在\n"
             "3. 如果不存在问题，用 gitlab_reply_discussion 回复解释理由\n"
             "4. 如果存在问题，修复代码、git commit & push，"
             "然后用 gitlab_reply_discussion 回复修复方案\n"
