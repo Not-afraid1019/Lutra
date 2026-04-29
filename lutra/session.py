@@ -28,6 +28,11 @@ SYSTEM_PROMPT_TEMPLATE = """\
 - 最小改动：只改必要的部分，不过度工程化
 - 清楚说明：改了什么、为什么
 - 用中文回复
+
+## Git 分支规范
+- 每次修复任务（JIRA/MR review）必须基于最新的 main 分支新建独立分支
+- 步骤：git fetch origin && git checkout main && git pull && git checkout -b fix/xxx
+- 不同任务的修复绝不能混在同一个分支上
 """
 
 
