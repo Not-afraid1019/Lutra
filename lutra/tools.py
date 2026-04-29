@@ -238,6 +238,71 @@ JIRA_TOOL_DEFINITIONS = [
     },
 ]
 
+# GitLab tools — only registered when GitLab is configured
+GITLAB_TOOL_DEFINITIONS = [
+    {
+        "name": "gitlab_list_mr_discussions",
+        "description": (
+            "列出 GitLab MR 的所有 review 评论/讨论。"
+            "返回每条评论的作者、内容、文件位置、resolved 状态。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mr_ref": {
+                    "type": "string",
+                    "description": "MR 引用: '!123' 或 '123' 或完整 URL",
+                },
+                "unresolved_only": {
+                    "type": "boolean",
+                    "description": "只显示未解决的评论 (默认 true)",
+                },
+            },
+            "required": ["mr_ref"],
+        },
+    },
+    {
+        "name": "gitlab_reply_discussion",
+        "description": "回复 GitLab MR 的某条评论/讨论",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mr_ref": {
+                    "type": "string",
+                    "description": "MR 引用: '!123' 或 '123' 或完整 URL",
+                },
+                "discussion_id": {
+                    "type": "string",
+                    "description": "Discussion ID",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "回复内容（支持 Markdown）",
+                },
+            },
+            "required": ["mr_ref", "discussion_id", "body"],
+        },
+    },
+    {
+        "name": "gitlab_resolve_discussion",
+        "description": "将 MR 评论/讨论标记为已解决",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mr_ref": {
+                    "type": "string",
+                    "description": "MR 引用: '!123' 或 '123' 或完整 URL",
+                },
+                "discussion_id": {
+                    "type": "string",
+                    "description": "Discussion ID",
+                },
+            },
+            "required": ["mr_ref", "discussion_id"],
+        },
+    },
+]
+
 
 # ======================================================================
 # Executor
@@ -247,7 +312,7 @@ _MAX_OUTPUT = 15000  # chars
 
 
 class ToolExecutor:
-    """Execute tools with full filesystem access + optional JIRA."""
+    """Execute tools with full filesystem access + optional JIRA/GitLab."""
 
     def __init__(
         self,
@@ -256,6 +321,7 @@ class ToolExecutor:
         mimo_config: dict | None = None,
         data_dir: str = "",
         project_dir: str = "",
+        gitlab_config: dict | None = None,
     ):
         self._cwd = Path(work_dir or Path.home()).resolve()
         self._jira_client = None
@@ -279,8 +345,26 @@ class ToolExecutor:
             except Exception as e:
                 log.warning("JIRA connection failed: %s", e)
 
-        log.info("Tool executor ready: cwd=%s jira=%s",
-                 self._cwd, "yes" if self._jira_client else "no")
+        # Initialize GitLab if configured
+        self._gitlab_session = None
+        self._gitlab_url = ""
+        self._gitlab_project = ""
+        if gitlab_config and gitlab_config.get("pat"):
+            from . import gitlab_client
+            url = gitlab_config.get("url", "")
+            project = gitlab_config.get("project", "")
+            if not url or not project:
+                url, project = gitlab_client.detect_project(str(self._project_dir))
+            if url and project:
+                self._gitlab_session = gitlab_client.connect(url, gitlab_config["pat"])
+                self._gitlab_url = url
+                self._gitlab_project = project
+                log.info("GitLab connected: %s (%s)", url, project)
+
+        log.info("Tool executor ready: cwd=%s jira=%s gitlab=%s",
+                 self._cwd,
+                 "yes" if self._jira_client else "no",
+                 "yes" if self._gitlab_session else "no")
 
     def update_jira_token(self, aegis_cas: str) -> bool:
         """Hot-update _aegis_cas cookie on the live JIRA session."""
@@ -295,6 +379,8 @@ class ToolExecutor:
         defs = list(TOOL_DEFINITIONS)
         if self._jira_client:
             defs.extend(JIRA_TOOL_DEFINITIONS)
+        if self._gitlab_session:
+            defs.extend(GITLAB_TOOL_DEFINITIONS)
         return defs
 
     def execute(self, name: str, inputs: dict) -> str:
@@ -681,6 +767,49 @@ class ToolExecutor:
         if len(result) > _MAX_OUTPUT:
             result = result[:_MAX_OUTPUT] + "\n… (truncated)"
         return result
+
+    # ── GitLab tools ──
+
+    def _tool_gitlab_list_mr_discussions(
+        self, mr_ref: str, unresolved_only: bool = True,
+    ) -> str:
+        if not self._gitlab_session:
+            return "Error: GitLab not configured"
+        from . import gitlab_client
+        mr_iid = gitlab_client.parse_mr_ref(mr_ref)
+        discussions = gitlab_client.list_discussions(
+            self._gitlab_session, self._gitlab_url, self._gitlab_project, mr_iid,
+        )
+        result = gitlab_client.format_discussions(discussions, unresolved_only)
+        if len(result) > _MAX_OUTPUT:
+            result = result[:_MAX_OUTPUT] + "\n… (truncated)"
+        return result
+
+    def _tool_gitlab_reply_discussion(
+        self, mr_ref: str, discussion_id: str, body: str,
+    ) -> str:
+        if not self._gitlab_session:
+            return "Error: GitLab not configured"
+        from . import gitlab_client
+        mr_iid = gitlab_client.parse_mr_ref(mr_ref)
+        note = gitlab_client.reply_discussion(
+            self._gitlab_session, self._gitlab_url, self._gitlab_project,
+            mr_iid, discussion_id, body,
+        )
+        return f"已回复 (note_id={note.get('id')})"
+
+    def _tool_gitlab_resolve_discussion(
+        self, mr_ref: str, discussion_id: str,
+    ) -> str:
+        if not self._gitlab_session:
+            return "Error: GitLab not configured"
+        from . import gitlab_client
+        mr_iid = gitlab_client.parse_mr_ref(mr_ref)
+        gitlab_client.resolve_discussion(
+            self._gitlab_session, self._gitlab_url, self._gitlab_project,
+            mr_iid, discussion_id,
+        )
+        return f"Discussion {discussion_id} 已标记为 resolved"
 
 
 # ======================================================================

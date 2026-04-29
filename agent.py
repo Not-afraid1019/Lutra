@@ -127,6 +127,66 @@ class APIHandler(BaseHTTPRequestHandler):
 
 
 # ======================================================================
+# GitLab poll loop
+# ======================================================================
+
+
+def gitlab_poll_loop():
+    """定时轮询 GitLab MR review 评论。支持固定间隔和固定时间两种模式。"""
+    interval = config.gitlab_poll_interval
+    cron = config.gitlab_poll_cron.strip()
+
+    if not interval and not cron:
+        return  # Neither mode enabled
+
+    if not config.gitlab_pat:
+        log.warning("[POLL] GITLAB_PAT not set, poll disabled")
+        return
+
+    # Parse cron times: "09:00,14:00" → {(9,0), (14,0)}
+    cron_times: set[tuple[int, int]] = set()
+    if cron:
+        for part in cron.split(","):
+            part = part.strip()
+            if ":" in part:
+                h, m = part.split(":", 1)
+                cron_times.add((int(h), int(m)))
+        if cron_times:
+            log.info("[POLL] Cron times: %s", ", ".join(f"{h:02d}:{m:02d}" for h, m in sorted(cron_times)))
+
+    if interval > 0:
+        log.info("[POLL] Interval mode: every %ds", interval)
+
+    last_cron_trigger = ""  # "HH:MM" of last triggered cron to avoid re-trigger within same minute
+
+    def _do_poll():
+        try:
+            n = session_mgr.poll_gitlab_reviews(feishu_sender=feishu_sender)
+            if n:
+                log.info("[POLL] Processed %d discussions", n)
+        except Exception as e:
+            log.error("[POLL] poll_gitlab_reviews failed: %s", e)
+
+    while True:
+        # Cron check: every 30s check if current time matches
+        if cron_times:
+            import datetime
+            now = datetime.datetime.now()
+            now_key = f"{now.hour:02d}:{now.minute:02d}"
+            if (now.hour, now.minute) in cron_times and now_key != last_cron_trigger:
+                last_cron_trigger = now_key
+                log.info("[POLL] Cron trigger at %s", now_key)
+                _do_poll()
+
+        if interval > 0:
+            time.sleep(interval)
+            _do_poll()
+        else:
+            # Cron-only mode: sleep 30s between checks
+            time.sleep(30)
+
+
+# ======================================================================
 # Main
 # ======================================================================
 
@@ -172,6 +232,10 @@ def main():
 
     threading.Thread(target=cleanup_loop, daemon=True).start()
 
+    # ── GitLab poll (optional) ──
+    if config.gitlab_pat and (config.gitlab_poll_interval > 0 or config.gitlab_poll_cron):
+        threading.Thread(target=gitlab_poll_loop, daemon=True).start()
+
     # ── HTTP server ──
     server = HTTPServer(("0.0.0.0", args.port), APIHandler)
 
@@ -186,11 +250,20 @@ def main():
     from pathlib import Path
     work_dir = config.project_dir or str(Path.home())
     feishu_status = f"chat_id={config.feishu_chat_id or 'any'}" if feishu_sender else "disabled"
+    gitlab_status = f"{config.gitlab_url} ({config.gitlab_project or 'auto-detect'})" if config.gitlab_pat else "disabled"
+    poll_parts = []
+    if config.gitlab_poll_interval > 0:
+        poll_parts.append(f"every {config.gitlab_poll_interval}s")
+    if config.gitlab_poll_cron:
+        poll_parts.append(f"at {config.gitlab_poll_cron}")
+    poll_status = ", ".join(poll_parts) if poll_parts else "disabled"
     print(f"\n  {config.bot_name} started")
     print(f"  Model       : {config.claude_model}")
     print(f"  Work dir    : {work_dir}")
     print(f"  HTTP API    : http://0.0.0.0:{args.port}")
     print(f"  Feishu      : {feishu_status}")
+    print(f"  GitLab      : {gitlab_status}")
+    print(f"  GitLab poll : {poll_status}")
     print(f"  Commands    : /reset /recall")
     print(f"  Press Ctrl+C to stop\n")
 

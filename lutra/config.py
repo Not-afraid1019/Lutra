@@ -61,4 +61,12 @@ class LutraConfig(BaseSettings):
     mimo_model: str = "mimo-v2-flash"
     mimo_provider_id: str = "xiaomi"
 
+    # GitLab
+    gitlab_url: str = ""              # e.g. "https://git.n.xiaomi.com"
+    gitlab_pat: str = ""              # Personal Access Token (PRIVATE-TOKEN)
+    gitlab_project: str = ""          # e.g. "ai-framework/osbot" (留空自动检测)
+    gitlab_poll_interval: int = 0     # 轮询间隔(秒)，0=不启用间隔轮询
+    gitlab_poll_cron: str = ""        # 固定时间，如 "09:00,14:00"，空=不启用
+    gitlab_bot_username: str = ""     # bot 的 GitLab 用户名，用于跳过自身评论
+
     model_config = {"env_file": ".env", "extra": "ignore"}

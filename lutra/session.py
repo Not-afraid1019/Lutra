@@ -62,6 +62,14 @@ class SessionManager:
             "provider_id": config.mimo_provider_id,
         }
 
+        gitlab_config = None
+        if config.gitlab_pat:
+            gitlab_config = {
+                "url": config.gitlab_url,
+                "pat": config.gitlab_pat,
+                "project": config.gitlab_project,
+            }
+
         # data_dir: resolve relative to lutra project root (where agent.py lives)
         data_dir = str(Path(__file__).resolve().parent.parent / "data")
 
@@ -71,6 +79,7 @@ class SessionManager:
             mimo_config=mimo_config,
             data_dir=data_dir,
             project_dir=self._work_dir,
+            gitlab_config=gitlab_config,
         )
         self._system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             bot_name=config.bot_name,
@@ -124,6 +133,144 @@ class SessionManager:
     def update_jira_token(self, aegis_cas: str) -> bool:
         """Hot-update _aegis_cas on the live JIRA session."""
         return self._tools.update_jira_token(aegis_cas)
+
+    def poll_gitlab_reviews(self, feishu_sender=None) -> int:
+        """轮询所有 open MR，处理未回复的 review 评论。返回处理数量。"""
+        from . import gitlab_client
+
+        cfg = self._config
+        if not cfg.gitlab_pat:
+            return 0
+
+        session = gitlab_client.connect(cfg.gitlab_url, cfg.gitlab_pat)
+        base_url = cfg.gitlab_url
+        project_path = cfg.gitlab_project
+
+        # Auto-detect project if not configured
+        if not project_path:
+            detected_url, detected_path = gitlab_client.detect_project(self._work_dir)
+            if detected_path:
+                base_url = detected_url
+                project_path = detected_path
+            else:
+                log.warning("[POLL] Cannot detect GitLab project path")
+                return 0
+
+        try:
+            mrs = gitlab_client.list_open_mrs(
+                session, base_url, project_path,
+                author_username=cfg.gitlab_bot_username or None,
+            )
+        except Exception as e:
+            log.error("[POLL] Failed to list open MRs: %s", e)
+            return 0
+
+        log.info("[POLL] checking %d open MRs...", len(mrs))
+        processed = 0
+
+        for mr in mrs:
+            mr_iid = mr["iid"]
+            try:
+                discussions = gitlab_client.list_discussions(
+                    session, base_url, project_path, mr_iid,
+                )
+            except Exception as e:
+                log.error("[POLL] MR !%s list_discussions failed: %s", mr_iid, e)
+                continue
+
+            for disc in discussions:
+                notes = disc.get("notes", [])
+                if not notes:
+                    continue
+                first = notes[0]
+                # Only unresolved, resolvable discussions
+                if not first.get("resolvable", False):
+                    continue
+                if first.get("resolved", False):
+                    continue
+                # Skip if last note is by bot
+                last_note = notes[-1]
+                last_author = last_note.get("author", {}).get("username", "")
+                if cfg.gitlab_bot_username and last_author == cfg.gitlab_bot_username:
+                    continue
+
+                disc_id = disc["id"]
+                lock_key = f"{mr_iid}:{disc_id}"
+                if not self._try_acquire_poll_lock(lock_key):
+                    continue
+
+                try:
+                    self._process_single_discussion(
+                        mr, disc, feishu_sender,
+                    )
+                    processed += 1
+                except Exception as e:
+                    log.error("[POLL] MR !%s disc %s failed: %s", mr_iid, disc_id, e)
+                finally:
+                    self._release_poll_lock(lock_key)
+
+        return processed
+
+    def _process_single_discussion(self, mr: dict, discussion: dict, feishu_sender=None):
+        """处理单条 discussion，通过 agent loop 自动回复/修复。"""
+        mr_iid = mr["iid"]
+        source_branch = mr.get("source_branch", "")
+        disc_id = discussion["id"]
+        notes = discussion["notes"]
+        last_note = notes[-1]
+
+        author = last_note.get("author", {}).get("username", "?")
+        comment = last_note.get("body", "")
+
+        # DiffNote: extract file/line from first note's position
+        first_note = notes[0]
+        position = first_note.get("position") or {}
+        file_path = position.get("new_path", "")
+        line_num = position.get("new_line") or position.get("old_line") or ""
+
+        context_parts = [
+            f"MR !{mr_iid} (branch: {source_branch}) 收到 review 评论。",
+            f"评论者: {author}",
+        ]
+        if file_path:
+            context_parts.append(f"评论位置: {file_path}:{line_num}")
+        context_parts.append(f"评论内容: {comment}")
+        context_parts.append(f"discussion_id: {disc_id}")
+        context_parts.append(
+            "\n请处理这条 review 评论：\n"
+            "1. 先 checkout 到对应分支，读取相关代码\n"
+            "2. 判断评论指出的问题是否确实存在\n"
+            "3. 如果不存在问题，用 gitlab_reply_discussion 回复解释理由\n"
+            "4. 如果存在问题，修复代码、git commit & push，"
+            "然后用 gitlab_reply_discussion 回复修复方案\n"
+            "5. 回复后用 gitlab_resolve_discussion 标记为已解决"
+        )
+        text = "\n".join(context_parts)
+
+        chat_id = f"gitlab-mr-{mr_iid}"
+        log.info("[POLL] Processing MR !%s disc %s by %s", mr_iid, disc_id, author)
+        reply = self.handle_message(chat_id, f"gitlab:{author}", text)
+        log.info("[POLL] MR !%s disc %s done: %s", mr_iid, disc_id, reply[:200])
+
+        # Feishu notification
+        if feishu_sender and self._config.feishu_chat_id:
+            feishu_sender.send_text(
+                self._config.feishu_chat_id,
+                f"已自动处理 MR !{mr_iid} 的 review 评论 (by {author})\n{reply[:200]}",
+            )
+
+    def _try_acquire_poll_lock(self, key: str) -> bool:
+        with self._lock:
+            if not hasattr(self, "_poll_processing"):
+                self._poll_processing: set[str] = set()
+            if key in self._poll_processing:
+                return False
+            self._poll_processing.add(key)
+            return True
+
+    def _release_poll_lock(self, key: str):
+        with self._lock:
+            self._poll_processing.discard(key)
 
     def save_all_sessions(self):
         with self._lock:
