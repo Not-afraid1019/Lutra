@@ -335,7 +335,7 @@ class SessionManager:
         sess.messages.append({"role": "user", "content": text})
         sess.ts = time.time()
 
-        for i in range(self._config.max_tool_rounds):
+        while True:
             try:
                 resp = self._llm.chat(
                     self._system_prompt,
@@ -386,8 +386,6 @@ class SessionManager:
                 )
 
             sess.messages.append({"role": "user", "content": tool_results})
-
-        return "（达到工具调用次数上限，请把任务拆小一些）"
 
     # ==================================================================
     # Persistence

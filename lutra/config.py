@@ -27,9 +27,6 @@ class LutraConfig(BaseSettings):
         ),
     )
 
-    # Agent loop
-    max_tool_rounds: int = 30
-
     # Context management
     context_threshold: int = 150_000
     context_keep_recent: int = 30
