@@ -330,20 +330,9 @@ class ToolExecutor:
         self._data_dir = Path(data_dir) if data_dir else Path("data")
         self._project_dir = Path(project_dir).resolve() if project_dir else self._cwd
 
-        # Initialize JIRA if configured
-        self._jira_session = None  # shared requests.Session for cookie reuse
-        if jira_config and jira_config.get("server") and jira_config.get("pat"):
-            try:
-                from . import jira_client
-                self._jira_client = jira_client.connect(
-                    jira_config["server"],
-                    jira_config["pat"],
-                    jira_config.get("aegis_cas", ""),
-                )
-                self._jira_session = jira_client.get_session(self._jira_client)
-                log.info("JIRA connected: %s", jira_config["server"])
-            except Exception as e:
-                log.warning("JIRA connection failed: %s", e)
+        # JIRA: lazy-connect on first use (avoid startup failure when
+        # aegis_cas is unavailable in headless / nohup environments)
+        self._jira_session = None
 
         # Initialize GitLab if configured
         self._gitlab_session = None
@@ -363,11 +352,33 @@ class ToolExecutor:
 
         log.info("Tool executor ready: cwd=%s jira=%s gitlab=%s",
                  self._cwd,
-                 "yes" if self._jira_client else "no",
+                 "configured" if self._jira_config.get("server") else "no",
                  "yes" if self._gitlab_session else "no")
+
+    def _get_jira_client(self):
+        """Lazy-connect JIRA on first use. Returns client or None."""
+        if self._jira_client:
+            return self._jira_client
+        cfg = self._jira_config
+        if not cfg.get("server") or not cfg.get("pat"):
+            return None
+        try:
+            from . import jira_client
+            self._jira_client = jira_client.connect(
+                cfg["server"], cfg["pat"], cfg.get("aegis_cas", ""),
+            )
+            self._jira_session = jira_client.get_session(self._jira_client)
+            log.info("JIRA connected: %s", cfg["server"])
+            return self._jira_client
+        except Exception as e:
+            log.warning("JIRA connection failed: %s", e)
+            return None
 
     def update_jira_token(self, aegis_cas: str) -> bool:
         """Hot-update _aegis_cas cookie on the live JIRA session."""
+        if not self._jira_session:
+            # Try connecting first
+            self._get_jira_client()
         if not self._jira_session:
             return False
         self._jira_session.cookies.set("_aegis_cas", aegis_cas)
@@ -377,7 +388,7 @@ class ToolExecutor:
     @property
     def definitions(self) -> list[dict]:
         defs = list(TOOL_DEFINITIONS)
-        if self._jira_client:
+        if self._jira_config.get("server") and self._jira_config.get("pat"):
             defs.extend(JIRA_TOOL_DEFINITIONS)
         if self._gitlab_session:
             defs.extend(GITLAB_TOOL_DEFINITIONS)
@@ -537,7 +548,7 @@ class ToolExecutor:
     # ── JIRA tools ──
 
     def _tool_jira_get_issue(self, issue_key: str) -> str:
-        if not self._jira_client:
+        if not self._get_jira_client():
             return "Error: JIRA not configured"
         from . import jira_client
         issue = jira_client.fetch_issue(self._jira_client, issue_key)
@@ -547,7 +558,7 @@ class ToolExecutor:
         return result
 
     def _tool_jira_list_issues(self, max_results: int = 20) -> str:
-        if not self._jira_client:
+        if not self._get_jira_client():
             return "Error: JIRA not configured"
         from . import jira_client
         jql = (
@@ -569,7 +580,7 @@ class ToolExecutor:
         return "\n".join(lines)
 
     def _tool_jira_search(self, jql: str, max_results: int = 20) -> str:
-        if not self._jira_client:
+        if not self._get_jira_client():
             return "Error: JIRA not configured"
         from . import jira_client
         issues = jira_client.search_issues(
@@ -593,7 +604,7 @@ class ToolExecutor:
         return self._data_dir / "jira" / issue_key.lower()
 
     def _tool_jira_analyze(self, issue_key: str) -> str:
-        if not self._jira_client:
+        if not self._get_jira_client():
             return "Error: JIRA not configured"
 
         from . import jira_client
@@ -688,7 +699,7 @@ class ToolExecutor:
         return analysis
 
     def _tool_jira_fix(self, issue_key: str) -> str:
-        if not self._jira_client:
+        if not self._get_jira_client():
             return "Error: JIRA not configured"
 
         issue_key = issue_key.upper().strip()
