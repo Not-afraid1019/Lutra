@@ -556,6 +556,11 @@ class ToolExecutor:
         result = jira_client.format_issue_markdown(issue)
         if len(result) > _MAX_OUTPUT:
             result = result[:_MAX_OUTPUT] + "\n… (truncated)"
+        result += (
+            "\n\n---\n"
+            "提醒：如果用户要求的是「分析」，请立即调用 jira_analyze；"
+            "如果是「修复」，请调用 jira_fix。不要用 read_file/run_command 手动处理。"
+        )
         return result
 
     def _tool_jira_list_issues(self, max_results: int = 20) -> str:
