@@ -33,6 +33,12 @@ SYSTEM_PROMPT_TEMPLATE = """\
 - 每次修复任务（JIRA/MR review）必须基于最新的 main 分支新建独立分支
 - 步骤：git fetch origin && git checkout main && git pull && git checkout -b fix/xxx
 - 不同任务的修复绝不能混在同一个分支上
+
+## JIRA 工作流
+- 当用户提到"分析"某个 JIRA issue 时，必须调用 jira_analyze 工具
+- 当用户提到"修复"某个 JIRA issue 时，必须调用 jira_fix 工具
+- 不要绕过这两个工具直接用 run_command/read_file 手动处理 JIRA 任务
+- 这两个工具会自动保存附件、脱敏信息和分析日志到 data/jira/ 目录
 """
 
 
