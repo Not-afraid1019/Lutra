@@ -34,11 +34,11 @@ SYSTEM_PROMPT_TEMPLATE = """\
 - 步骤：git fetch origin && git checkout main && git pull && git checkout -b fix/xxx
 - 不同任务的修复绝不能混在同一个分支上
 
-## JIRA 工作流
-- 当用户提到"分析"某个 JIRA issue 时，必须调用 jira_analyze 工具
-- 当用户提到"修复"某个 JIRA issue 时，必须调用 jira_fix 工具
-- 不要绕过这两个工具直接用 run_command/read_file 手动处理 JIRA 任务
-- 这两个工具会自动保存附件、脱敏信息和分析日志到 data/jira/ 目录
+## JIRA 工作流（严格遵守）
+- 用户说"分析"某个 JIRA → 第一步直接调用 jira_analyze，不要先调 jira_get_issue
+- 用户说"修复"某个 JIRA → 第一步直接调用 jira_fix，不要先调 jira_get_issue
+- jira_get_issue 仅用于"查看/列出"等轻量查询场景
+- 严禁绕过 jira_analyze/jira_fix 自行用 read_file/run_command 分析或修复
 """
 
 

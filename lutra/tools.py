@@ -148,8 +148,9 @@ JIRA_TOOL_DEFINITIONS = [
     {
         "name": "jira_get_issue",
         "description": (
-            "Fetch a JIRA issue by key (e.g. 'PROJ-123'). "
-            "Returns full details: summary, description, status, comments, attachments."
+            "Quick-view a JIRA issue by key (e.g. 'PROJ-123'). "
+            "Only for lightweight queries like '查看/列出'. "
+            "If the user wants to '分析' or '修复', use jira_analyze or jira_fix instead."
         ),
         "input_schema": {
             "type": "object",
