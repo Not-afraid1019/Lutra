@@ -527,7 +527,7 @@ class ToolExecutor:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                env={k: v for k, v in os.environ.items() if k != "CLAUDECODE"},
             )
         except subprocess.TimeoutExpired:
             return f"Error: command timed out ({timeout}s)"
@@ -843,7 +843,7 @@ def _run_claude_cli(prompt: str, cwd: Path, timeout: int = 300) -> str:
             text=True,
             cwd=str(cwd),
             timeout=timeout,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            env={k: v for k, v in os.environ.items() if k != "CLAUDECODE"},
         )
         output = proc.stdout or ""
         if proc.stderr:
