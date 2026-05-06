@@ -401,36 +401,50 @@ class SessionManager:
 
     @staticmethod
     def _sanitize_messages(messages: list[dict]):
-        """Remove orphaned tool_result blocks that lack a preceding tool_use.
+        """Fix orphaned tool_use/tool_result blocks.
 
-        This can happen after context compression or a mid-loop crash.
+        Handles two cases:
+        1. tool_result without preceding tool_use (from compression)
+        2. tool_use without following tool_result (from mid-loop crash)
+
         Mutates the list in place.
         """
-        # Collect tool_use ids from the entire conversation
+        # Pass 1: collect all tool_use ids and all tool_result ids
         tool_use_ids: set[str] = set()
+        tool_result_ids: set[str] = set()
         for msg in messages:
             content = msg.get("content")
             if not isinstance(content, list):
                 continue
             for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
                     tool_use_ids.add(block["id"])
+                elif block.get("type") == "tool_result":
+                    tool_result_ids.add(block.get("tool_use_id", ""))
 
-        # Remove messages whose content is entirely orphaned tool_results
+        # Pass 2: remove orphaned tool_results and orphaned tool_uses
         i = 0
         removed = 0
         while i < len(messages):
             content = messages[i].get("content")
             if isinstance(content, list):
-                # Filter out orphaned tool_result blocks
-                cleaned = [
-                    b for b in content
-                    if not (
-                        isinstance(b, dict)
-                        and b.get("type") == "tool_result"
-                        and b.get("tool_use_id") not in tool_use_ids
-                    )
-                ]
+                cleaned = []
+                for b in content:
+                    if not isinstance(b, dict):
+                        cleaned.append(b)
+                        continue
+                    # Remove tool_result without matching tool_use
+                    if (b.get("type") == "tool_result"
+                            and b.get("tool_use_id") not in tool_use_ids):
+                        continue
+                    # Remove tool_use without matching tool_result
+                    if (b.get("type") == "tool_use"
+                            and b.get("id") not in tool_result_ids):
+                        continue
+                    cleaned.append(b)
+
                 if not cleaned:
                     messages.pop(i)
                     removed += 1
@@ -440,7 +454,7 @@ class SessionManager:
             i += 1
 
         if removed:
-            log.info("Sanitized messages: removed %d orphaned tool_result messages", removed)
+            log.info("Sanitized messages: removed %d orphaned messages", removed)
 
     # ==================================================================
     # Persistence
