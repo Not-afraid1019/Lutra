@@ -98,6 +98,7 @@ class SessionManager:
         )
         self._sessions: dict[str, SessionState] = {}
         self._lock = threading.Lock()
+        self._chat_locks: dict[str, threading.Lock] = {}
         self._restore_sessions()
 
     # ==================================================================
@@ -126,19 +127,27 @@ class SessionManager:
     # ==================================================================
 
     def handle_message(self, chat_id: str, sender_id: str, text: str) -> str:
-        """Main entry — called for every user message."""
+        """Main entry — called for every user message.
 
-        # Commands
+        Uses per-chat locks to serialize concurrent messages from the same chat.
+        """
+        # Commands don't need serialization
         cmd = self._try_command(chat_id, text)
         if cmd is not None:
             return cmd
 
-        sess = self._get_or_create(chat_id, text)
+        # Get or create per-chat lock
+        with self._lock:
+            if chat_id not in self._chat_locks:
+                self._chat_locks[chat_id] = threading.Lock()
+            chat_lock = self._chat_locks[chat_id]
 
-        # Agent loop
-        reply = self._agent_loop(sess, text)
+        # Serialize messages for the same chat
+        with chat_lock:
+            sess = self._get_or_create(chat_id, text)
+            reply = self._agent_loop(sess, text)
+            self._maybe_persist(sess)
 
-        self._maybe_persist(sess)
         return reply
 
     def update_jira_token(self, aegis_cas: str) -> bool:
