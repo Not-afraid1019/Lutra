@@ -68,6 +68,43 @@ def get_aegis_cas(domain: str = "jira-phone.mioffice.cn") -> str:
     return token
 
 
+def get_chrome_cookies(domain: str, names: list[str]) -> dict[str, str]:
+    """Read and decrypt multiple cookies from Chrome for a given domain.
+
+    Returns dict of {cookie_name: value}. Missing cookies are omitted.
+    """
+    db_path = Path.home() / ".config/google-chrome/Default/Cookies"
+    if not db_path.exists():
+        return {}
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".sqlite")
+    try:
+        shutil.copy2(str(db_path), tmp.name)
+        conn = sqlite3.connect(tmp.name)
+        c = conn.cursor()
+
+        result = {}
+        for name in names:
+            c.execute(
+                "SELECT encrypted_value FROM cookies "
+                "WHERE host_key = ? AND name = ?",
+                (domain, name),
+            )
+            row = c.fetchone()
+            if row and row[0]:
+                val = _decrypt_chrome_cookie(row[0])
+                if val:
+                    result[name] = val
+
+        conn.close()
+        return result
+    except Exception as e:
+        log.warning("Failed to read Chrome cookies for %s: %s", domain, e)
+        return {}
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+
+
 def _read_from_chrome(domain: str) -> str:
     """Read and decrypt _aegis_cas cookie from Chrome's cookie database."""
     db_path = Path.home() / ".config/google-chrome/Default/Cookies"

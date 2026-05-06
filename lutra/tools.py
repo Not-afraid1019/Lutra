@@ -632,6 +632,16 @@ class ToolExecutor:
             issue_data, att_dir, self._jira_session,
         )
 
+        # 2b. Download logs from feedback.pt.xiaomi.com (if referenced)
+        log.info("[ANALYZE] Checking for feedback.pt log links in %s", issue_key)
+        feedback_manifest = jira_client.download_feedback_logs(
+            issue_data, att_dir,
+        )
+        if feedback_manifest.get("files"):
+            manifest.setdefault("files", []).extend(feedback_manifest["files"])
+        if feedback_manifest.get("errors"):
+            manifest.setdefault("errors", []).extend(feedback_manifest["errors"])
+
         # 3. Format issue as text and filter sensitive data
         raw_text = jira_client.format_issue_markdown(issue_data)
 

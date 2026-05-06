@@ -302,6 +302,143 @@ def download_attachments(
     return manifest
 
 
+# ======================================================================
+# Feedback page log download
+# ======================================================================
+
+_FEEDBACK_URL_PATTERN = re.compile(
+    r'https?://feedback\.pt\.xiaomi\.com/feedback/logDownloadBox\?feedbackId=(\d+)'
+)
+
+
+def extract_feedback_urls(issue_data: dict) -> list[str]:
+    """Extract feedback.pt.xiaomi.com logDownloadBox URLs from issue text.
+
+    Scans description and comments for URLs like:
+    https://feedback.pt.xiaomi.com/feedback/logDownloadBox?feedbackId=120375116
+    """
+    urls = []
+    seen = set()
+    text_sources = []
+    if issue_data.get("description"):
+        text_sources.append(issue_data["description"])
+    for c in issue_data.get("comments", []):
+        text_sources.append(c.get("body", ""))
+
+    for text in text_sources:
+        for m in _FEEDBACK_URL_PATTERN.finditer(text):
+            url = m.group(0)
+            if url not in seen:
+                urls.append(url)
+                seen.add(url)
+    return urls
+
+
+def download_feedback_logs(
+    issue_data: dict,
+    output_dir: str | Path,
+) -> dict:
+    """Download log files from feedback.pt.xiaomi.com pages referenced in issue.
+
+    Authenticates using Chrome cookies (SESSION, _aegis_cas for feedback domain,
+    TGC2 for CAS domain).
+
+    Returns manifest dict: {"files": [...], "errors": [...]}.
+    """
+    from .aegis import get_chrome_cookies
+
+    urls = extract_feedback_urls(issue_data)
+    if not urls:
+        return {"files": [], "errors": []}
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get Chrome cookies for auth
+    feedback_cookies = get_chrome_cookies(
+        "feedback.pt.xiaomi.com", ["SESSION", "_aegis_cas"]
+    )
+    cas_cookies = get_chrome_cookies("cas.mioffice.cn", ["TGC2"])
+
+    if not feedback_cookies:
+        log.warning("No Chrome cookies for feedback.pt.xiaomi.com — cannot download")
+        return {"files": [], "errors": [{"url": u, "error": "no auth cookies"} for u in urls]}
+
+    # Build session with cookies
+    sess = requests.Session()
+    for name, val in feedback_cookies.items():
+        sess.cookies.set(name, val, domain="feedback.pt.xiaomi.com")
+    for name, val in cas_cookies.items():
+        sess.cookies.set(name, val, domain="cas.mioffice.cn")
+
+    manifest = {"files": [], "errors": []}
+
+    for page_url in urls:
+        feedback_id = _FEEDBACK_URL_PATTERN.search(page_url).group(1)
+        try:
+            file_urls = _fetch_feedback_file_urls(sess, feedback_id)
+        except Exception as e:
+            log.warning("Failed to get log URLs for feedbackId=%s: %s", feedback_id, e)
+            manifest["errors"].append({"url": page_url, "error": str(e)})
+            continue
+
+        for file_url in file_urls:
+            try:
+                filename = urlparse(file_url).path.split("/")[-1] or f"feedback-{feedback_id}.zip"
+                filepath = output_dir / filename
+                # Avoid overwriting
+                counter = 1
+                while filepath.exists():
+                    filepath = output_dir / f"{filepath.stem}_{counter}{filepath.suffix}"
+                    counter += 1
+
+                resp = sess.get(file_url, timeout=120, stream=True)
+                resp.raise_for_status()
+
+                with open(filepath, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                manifest["files"].append({
+                    "filename": filepath.name,
+                    "source_url": file_url,
+                    "source": f"feedback:{feedback_id}",
+                    "size": filepath.stat().st_size,
+                })
+                log.info("Downloaded feedback log: %s (%d bytes)",
+                         filepath.name, filepath.stat().st_size)
+            except Exception as e:
+                log.warning("Failed to download %s: %s", file_url, e)
+                manifest["errors"].append({"url": file_url, "error": str(e)})
+
+    return manifest
+
+
+def _fetch_feedback_file_urls(sess: requests.Session, feedback_id: str) -> list[str]:
+    """Fetch actual download URLs from feedback.pt AJAX endpoint.
+
+    Calls /ajax/getFeedbackLogFile?feedbackId=XXX&productName=phone
+    Returns list of download URLs.
+    """
+    api_url = (
+        f"https://feedback.pt.xiaomi.com/ajax/getFeedbackLogFile"
+        f"?feedbackId={feedback_id}&productName=phone"
+    )
+    resp = sess.get(api_url, timeout=30)
+    resp.raise_for_status()
+
+    data = resp.json()
+    # Response format: {"log": ["url1", ...], "otherKey": ["url2", ...]}
+    # or error: {"log": "asyncDesensitize"}
+    urls = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.startswith("http"):
+                    urls.append(item)
+    return urls
+
+
 def _fix_filename_ext(filepath: Path, content_type: str) -> Path:
     """Fix file extension based on magic bytes and Content-Type."""
     try:
